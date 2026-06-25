@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Request, Response, RequestHandler } from "express";
 import { asyncHandler } from "../utils/async-handler";
 import { FormDefinitionSchema } from "@repo/types";
+import { CreateFormInput, UpdateFormInput } from "../lib/form-schemas";
 import prisma from "../lib/db";
 
 // ============================================
@@ -75,8 +76,8 @@ export const listForms: RequestHandler = asyncHandler(
 export const createForm: RequestHandler = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = res.locals.user.id as string;
-    const { title, description, coverUrl, iconSymbol, requireEmail, slug, definition } =
-      req.body;
+    const { title, description, coverUrl, iconSymbol, requireEmail, slug, definition, type } = req.body as CreateFormInput;
+
 
     const form = await prisma.form.create({
       data: {
@@ -87,6 +88,7 @@ export const createForm: RequestHandler = asyncHandler(
         iconSymbol,
         requireEmail,
         slug,
+        type,
         // Store the full FormDefinition object as jsonb
         fields: definition,
       },
@@ -144,8 +146,7 @@ export const updateForm: RequestHandler = asyncHandler(
       return;
     }
 
-    const { title, description, coverUrl, iconSymbol, requireEmail, slug, definition } =
-      req.body;
+    const { title, description, coverUrl, iconSymbol, requireEmail, slug, definition, type } = req.body as UpdateFormInput;
 
     const updated = await prisma.form.update({
       where: { id: req.params.id },
@@ -156,6 +157,7 @@ export const updateForm: RequestHandler = asyncHandler(
         ...(iconSymbol !== undefined && { iconSymbol }),
         ...(requireEmail !== undefined && { requireEmail }),
         ...(slug !== undefined && { slug }),
+        ...(type !== undefined && { type }),
         // Only update fields if definition was provided in the request
         ...(definition !== undefined && { fields: definition }),
       },
@@ -211,4 +213,25 @@ export const togglePublish: RequestHandler = asyncHandler(
 
     res.json({ success: true, data: updated });
   },
+);
+
+// ============================================
+// POST /api/v1/forms/generate — generate form with AI
+// ============================================
+
+export const generateForm: RequestHandler = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { prompt } = req.body;
+
+    // TODO: Connect real LLM logic here later. 
+    // For now, return a basic mock structure so the frontend can test.
+    const dummyDefinition = {
+      version: "1.0",
+      elements: [
+        { id: "q1", type: "text", label: `AI generated question for: ${prompt || "General"}`, required: true }
+      ]
+    };
+
+    res.json({ success: true, data: { definition: dummyDefinition } });
+  }
 );

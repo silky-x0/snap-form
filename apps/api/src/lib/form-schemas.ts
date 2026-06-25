@@ -14,6 +14,7 @@ export const CreateFormSchema = z.object({
     .min(3)
     .max(100)
     .optional(),
+  type: z.enum(["SCROLL", "STEP", "CHAT"]).default("SCROLL"),
   definition: FormDefinitionSchema.default({ version: "1.0", elements: [] }),
 });
 
@@ -31,5 +32,10 @@ export const SubmitResponseSchema = z.object({
   email: z.string().email().optional(),
   data: FormResponseDataSchema,
 });
+
+export const GenerateFormSchema = z.object({
+  prompt: z.string().optional()
+});
+
 
 export type SubmitResponseInput = z.infer<typeof SubmitResponseSchema>;
