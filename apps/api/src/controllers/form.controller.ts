@@ -92,8 +92,19 @@ export const createForm: RequestHandler = asyncHandler(
           // Store the full FormDefinition object as jsonb
           fields: definition,
         },
+        select: {
+          id: true, title: true, description: true, iconSymbol: true,
+          coverUrl: true, published: true, slug: true, type: true,
+          requireEmail: true, responseCount: true, viewCount: true,
+          fields: true, createdAt: true, updatedAt: true,
+        },
       });
-      res.status(201).json({ success: true, data: form });
+      const definitionResult = FormDefinitionSchema.safeParse(form.fields);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { fields: _fields, ...formWithoutFields } = form;
+      res.status(201).json({
+        success: true, data: { ...formWithoutFields, definition: definitionResult.success ? definitionResult.data : form.fields }
+      });
     } catch (err: unknown) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         res.status(409).json({ success: false, message: "A form with this slug already exists" });
@@ -181,10 +192,18 @@ export const updateForm: RequestHandler = asyncHandler(
           id: true, title: true, description: true, iconSymbol: true,
           coverUrl: true, published: true, slug: true, type: true,
           requireEmail: true, responseCount: true, viewCount: true,
-          createdAt: true, updatedAt: true,
+          fields: true, createdAt: true, updatedAt: true,
         },
       });
-      res.json({ success: true, data: updated });
+      const definitionResult = FormDefinitionSchema.safeParse(updated.fields);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { fields: _fields, ...formWithoutFields } = updated;
+      res.json({
+        success: true, data: {
+          ...formWithoutFields,
+          definition: definitionResult.success ? definitionResult.data : updated.fields
+        }
+      });
     } catch (err: unknown) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err?.code === "P2002") {
         res.status(409).json({ success: false, message: "A form with this slug already exists" });
