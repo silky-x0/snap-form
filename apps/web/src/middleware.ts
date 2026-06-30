@@ -7,7 +7,10 @@ const ONBOARDING_ONLY = ["/onboarding"];
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  const sessionToken = req.cookies.get("better-auth.session_token")?.value;
+  // BetterAuth uses a plain name in HTTP (dev) and __Secure- prefix in HTTPS (prod)
+  const sessionToken =
+    req.cookies.get("better-auth.session_token")?.value ??
+    req.cookies.get("__Secure-better-auth.session_token")?.value;
   const isLoggedIn = Boolean(sessionToken);
 
   const isOnboarded = req.cookies.get("snap_onboarded")?.value === "1";

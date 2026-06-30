@@ -125,7 +125,7 @@ export default function OnboardingPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (res.status === 409) {
         setErrors({ username: "This username is already taken" });
