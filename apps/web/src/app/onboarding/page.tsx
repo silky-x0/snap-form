@@ -43,20 +43,25 @@ function InstagramIcon() {
 
 type FormState = {
   username: string;
-  xUrl: string;
-  linkedinUrl: string;
-  instagramUrl: string;
+  socialLinks: {
+    x: string;
+    linkedin: string;
+    instagram: string;
+  };
 };
 
-type FieldError = Partial<Record<keyof FormState, string>>;
+type FieldError = {
+  username?: string;
+  x?: string;
+  linkedin?: string;
+  instagram?: string;
+};
 
 export default function OnboardingPage() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>({
     username: "",
-    xUrl: "",
-    linkedinUrl: "",
-    instagramUrl: "",
+    socialLinks: { x: "", linkedin: "", instagram: "" },
   });
   const [errors, setErrors] = useState<FieldError>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -64,9 +69,17 @@ export default function OnboardingPage() {
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-    // Clear the error for the field being edited
-    setErrors((prev) => ({ ...prev, [name]: undefined }));
+    if (name === "username") {
+      setForm((prev) => ({ ...prev, username: value }));
+      setErrors((prev) => ({ ...prev, username: undefined }));
+    } else {
+      // name is one of: x | linkedin | instagram
+      setForm((prev) => ({
+        ...prev,
+        socialLinks: { ...prev.socialLinks, [name]: value },
+      }));
+      setErrors((prev) => ({ ...prev, [name]: undefined }));
+    }
     setServerError(null);
   }
 
@@ -79,14 +92,12 @@ export default function OnboardingPage() {
         "3–30 chars, lowercase letters, numbers, underscores only";
     }
     const urlPattern = /^https?:\/\/.+/;
-    if (form.xUrl && !urlPattern.test(form.xUrl))
-      next.xUrl = "Must be a valid URL (e.g. https://x.com/you)";
-    if (form.linkedinUrl && !urlPattern.test(form.linkedinUrl))
-      next.linkedinUrl =
-        "Must be a valid URL (e.g. https://linkedin.com/in/you)";
-    if (form.instagramUrl && !urlPattern.test(form.instagramUrl))
-      next.instagramUrl =
-        "Must be a valid URL (e.g. https://instagram.com/you)";
+    if (form.socialLinks.x && !urlPattern.test(form.socialLinks.x))
+      next.x = "Must be a valid URL (e.g. https://x.com/you)";
+    if (form.socialLinks.linkedin && !urlPattern.test(form.socialLinks.linkedin))
+      next.linkedin = "Must be a valid URL (e.g. https://linkedin.com/in/you)";
+    if (form.socialLinks.instagram && !urlPattern.test(form.socialLinks.instagram))
+      next.instagram = "Must be a valid URL (e.g. https://instagram.com/you)";
 
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -106,9 +117,11 @@ export default function OnboardingPage() {
         credentials: "include",
         body: JSON.stringify({
           username: form.username,
-          xUrl: form.xUrl || undefined,
-          linkedinUrl: form.linkedinUrl || undefined,
-          instagramUrl: form.instagramUrl || undefined,
+          socialLinks: {
+            x: form.socialLinks.x || undefined,
+            linkedin: form.socialLinks.linkedin || undefined,
+            instagram: form.socialLinks.instagram || undefined,
+          },
         }),
       });
 
@@ -124,7 +137,8 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Success — go to dashboard
+      // Success — mark onboarding complete in a cookie so middleware can read it
+      document.cookie = "snap_onboarded=1; path=/; max-age=31536000; SameSite=Lax";
       router.push("/dashboard");
     } catch {
       setServerError("Network error. Please check your connection.");
@@ -203,14 +217,14 @@ export default function OnboardingPage() {
                 </Label>
                 <Input
                   id="xUrl"
-                  name="xUrl"
+                  name="x"
                   type="url"
                   placeholder="https://x.com/yourhandle"
-                  value={form.xUrl}
+                  value={form.socialLinks.x}
                   onChange={handleChange}
                 />
-                {errors.xUrl && (
-                  <p className="text-destructive text-xs">{errors.xUrl}</p>
+                {errors.x && (
+                  <p className="text-destructive text-xs">{errors.x}</p>
                 )}
               </div>
 
@@ -225,15 +239,15 @@ export default function OnboardingPage() {
                 </Label>
                 <Input
                   id="linkedinUrl"
-                  name="linkedinUrl"
+                  name="linkedin"
                   type="url"
                   placeholder="https://linkedin.com/in/yourname"
-                  value={form.linkedinUrl}
+                  value={form.socialLinks.linkedin}
                   onChange={handleChange}
                 />
-                {errors.linkedinUrl && (
+                {errors.linkedin && (
                   <p className="text-destructive text-xs">
-                    {errors.linkedinUrl}
+                    {errors.linkedin}
                   </p>
                 )}
               </div>
@@ -249,15 +263,15 @@ export default function OnboardingPage() {
                 </Label>
                 <Input
                   id="instagramUrl"
-                  name="instagramUrl"
+                  name="instagram"
                   type="url"
                   placeholder="https://instagram.com/yourhandle"
-                  value={form.instagramUrl}
+                  value={form.socialLinks.instagram}
                   onChange={handleChange}
                 />
-                {errors.instagramUrl && (
+                {errors.instagram && (
                   <p className="text-destructive text-xs">
-                    {errors.instagramUrl}
+                    {errors.instagram}
                   </p>
                 )}
               </div>

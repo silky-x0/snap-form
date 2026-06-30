@@ -34,9 +34,7 @@ model User {
 
   // Onboarding
   onboardingCompleted Boolean @default(false)
-  xUrl                String?
-  linkedinUrl         String?
-  instagramUrl        String?
+  socialLinks         Json    @default("{}")
 
   // Metadata
   createdAt     DateTime  @default(now())

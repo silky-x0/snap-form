@@ -18,7 +18,7 @@ export const completeOnboarding: RequestHandler = asyncHandler(
       return;
     }
 
-    const { username, xUrl, linkedinUrl, instagramUrl } = parsed.data;
+    const { username, socialLinks } = parsed.data;
 
     // Check if username is already taken by another user
     const existing = await prisma.user.findUnique({ where: { username } });
@@ -30,14 +30,19 @@ export const completeOnboarding: RequestHandler = asyncHandler(
       return;
     }
 
+    // Normalise empty strings to undefined so they aren't stored
+    const cleanedLinks = {
+      x: socialLinks.x || undefined,
+      linkedin: socialLinks.linkedin || undefined,
+      instagram: socialLinks.instagram || undefined,
+    };
+
     // Save onboarding data
     const updated = await prisma.user.update({
       where: { id: user.id },
       data: {
         username,
-        xUrl: xUrl || null,
-        linkedinUrl: linkedinUrl || null,
-        instagramUrl: instagramUrl || null,
+        socialLinks: cleanedLinks,
         onboardingCompleted: true,
       },
       select: {
@@ -45,9 +50,7 @@ export const completeOnboarding: RequestHandler = asyncHandler(
         name: true,
         username: true,
         email: true,
-        xUrl: true,
-        linkedinUrl: true,
-        instagramUrl: true,
+        socialLinks: true,
         onboardingCompleted: true,
       },
     });

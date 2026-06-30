@@ -15,9 +15,13 @@ export const OnboardingSchema = z.object({
       /^[a-z0-9_]+$/,
       "Only lowercase letters, numbers, and underscores allowed"
     ),
-  xUrl: optionalUrl,
-  linkedinUrl: optionalUrl,
-  instagramUrl: optionalUrl,
+  socialLinks: z
+    .object({
+      x: optionalUrl,
+      linkedin: optionalUrl,
+      instagram: optionalUrl,
+    })
+    .default({}),
 });
 
 export type OnboardingInput = z.infer<typeof OnboardingSchema>;
