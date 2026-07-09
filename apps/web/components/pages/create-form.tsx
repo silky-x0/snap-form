@@ -5,7 +5,6 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@repo/ui/components/ui/button";
 import { Badge } from "@repo/ui/components/ui/badge";
-import { Separator } from "@repo/ui/components/ui/separator";
 import { Label } from "@repo/ui/components/ui/label";
 import { Checkbox } from "@repo/ui/components/ui/checkbox";
 import {
@@ -13,27 +12,23 @@ import {
   Wrench,
   Type,
   Mail,
-  Hash,
   Copy,
   Trash2,
-  Plus,
   Send,
   Bot,
   User,
-  Eye,
-  Monitor,
-  Smartphone,
+  Upload,
   GripVertical,
   ChevronDown,
   ScrollText,
   ListOrdered,
   MessageCircle,
-  Upload,
   Phone,
   Calendar,
   Star,
   AlignLeft,
   Heading,
+  ChevronUp,
 } from "lucide-react";
 
 /* ── Types ───────────────────────────────────────────────────────── */
@@ -71,16 +66,16 @@ type FormType = "scroll" | "step" | "chat";
 /* ── Field Type Metadata ─────────────────────────────────────────── */
 
 const FIELD_TYPE_OPTIONS = [
-  { value: "textInput", label: "Short Text", icon: Type },
-  { value: "textarea", label: "Long Text", icon: AlignLeft },
-  { value: "email", label: "Email", icon: Mail },
-  { value: "phone", label: "Phone", icon: Phone },
-  { value: "dropdown", label: "Dropdown", icon: ChevronDown },
-  { value: "multipleChoice", label: "Multiple Choice", icon: ListOrdered },
-  { value: "checkbox", label: "Checkbox", icon: Checkbox as unknown as typeof Type },
-  { value: "datePicker", label: "Date", icon: Calendar },
-  { value: "rating", label: "Rating", icon: Star },
-  { value: "heading", label: "Heading", icon: Heading },
+  { value: "textInput" as const, label: "Short Text", icon: Type },
+  { value: "textarea" as const, label: "Long Text", icon: AlignLeft },
+  { value: "email" as const, label: "Email", icon: Mail },
+  { value: "phone" as const, label: "Phone", icon: Phone },
+  { value: "dropdown" as const, label: "Dropdown", icon: ChevronDown },
+  { value: "multipleChoice" as const, label: "Multiple Choice", icon: ListOrdered },
+  { value: "checkbox" as const, label: "Checkbox", icon: Star },
+  { value: "datePicker" as const, label: "Date", icon: Calendar },
+  { value: "rating" as const, label: "Rating", icon: Star },
+  { value: "heading" as const, label: "Heading", icon: Heading },
 ] as const;
 
 const FIELD_ICON_MAP = Object.fromEntries(
@@ -91,26 +86,19 @@ function getFieldIcon(type: FormFieldType) {
   return FIELD_ICON_MAP[type] ?? Type;
 }
 
-/* ── Mock Data ───────────────────────────────────────────────────── */
-
-const INITIAL_FIELDS: FormField[] = [
-  {
-    id: "field-1",
-    type: "textInput",
-    label: "Full Name",
-    placeholder: "Jane Doe",
-    required: true,
+function createField(type: FormFieldType): FormField {
+  const meta = FIELD_TYPE_OPTIONS.find((o) => o.value === type);
+  return {
+    id: `field-${crypto.randomUUID()}`,
+    type,
+    label: meta?.label ?? "New Field",
+    placeholder: type === "heading" ? "" : "Enter value...",
+    required: false,
     validateFormat: false,
-  },
-  {
-    id: "field-2",
-    type: "email",
-    label: "Email Address",
-    placeholder: "jane@example.com",
-    required: true,
-    validateFormat: true,
-  },
-];
+  };
+}
+
+/* ── Mock Chat Data ──────────────────────────────────────────────── */
 
 const INITIAL_CHAT: ChatMessage[] = [
   {
@@ -118,153 +106,229 @@ const INITIAL_CHAT: ChatMessage[] = [
     role: "ai",
     content: "Hi! What kind of form do you want to build today?",
   },
-  {
-    id: "msg-2",
-    role: "user",
-    content: "I need an event registration form for a tech meetup.",
-  },
-  {
-    id: "msg-3",
-    role: "ai",
-    content: "Great. I've drafted a basic structure on the right.",
-    code: "Added fields: Name, Email, Role, Dietary Req.",
-  },
-  {
-    id: "msg-4",
-    role: "ai",
-    content: "Do you want to add payment processing or custom branding?",
-  },
 ];
 
-/* ── Field Config Card ───────────────────────────────────────────── */
+/* ── Snippet Palette Item (Left Panel — draggable) ───────────────── */
 
-function FieldConfigCard({
+function SnippetItem({
+  type,
+  label,
+  icon: Icon,
+}: {
+  type: FormFieldType;
+  label: string;
+  icon: typeof Type;
+}) {
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>) {
+    e.dataTransfer.setData("application/snippet-type", type);
+    e.dataTransfer.effectAllowed = "copy";
+  }
+
+  return (
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      className="flex items-center gap-3 px-3 py-2.5 border border-border rounded-lg cursor-grab text-sm bg-background text-foreground hover:border-foreground/40 hover:bg-muted/50 transition-all select-none active:scale-95 active:shadow-lg active:border-foreground"
+    >
+      <Icon className="size-4 shrink-0" />
+      <span className="font-medium">{label}</span>
+      <GripVertical className="size-3.5 ml-auto text-muted-foreground" />
+    </div>
+  );
+}
+
+/* ── Canvas Field Card (Right Panel — Editable, draggable) ───────── */
+
+function CanvasFieldCard({
   field,
+  index,
   onUpdate,
   onDuplicate,
   onDelete,
+  isExpanded,
+  onToggleExpand,
+  onReorderDragStart,
+  onReorderDragOver,
+  onReorderDrop,
+  onSnippetDropOnCard,
 }: {
   field: FormField;
+  index: number;
   onUpdate: (id: string, updates: Partial<FormField>) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  isExpanded: boolean;
+  onToggleExpand: (id: string) => void;
+  onReorderDragStart: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onReorderDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onReorderDrop: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onSnippetDropOnCard: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
 }) {
   const IconComponent = getFieldIcon(field.type);
 
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    // Accept both reorder and snippet drops
+    const hasSnippet = e.dataTransfer.types.includes("application/snippet-type");
+    e.dataTransfer.dropEffect = hasSnippet ? "copy" : "move";
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    const snippetType = e.dataTransfer.getData("application/snippet-type");
+    if (snippetType) {
+      // Snippet from palette — insert above or below based on cursor position
+      e.preventDefault();
+      e.stopPropagation();
+      onSnippetDropOnCard(e, index);
+    } else {
+      // Reorder within canvas
+      onReorderDrop(e, index);
+    }
+  }
+
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12, scale: 0.95 }}
-      transition={{ duration: 0.2 }}
-      className="border border-border p-4 bg-background rounded-lg flex flex-col gap-4"
+    <div
+      draggable
+      onDragStart={(e) => onReorderDragStart(e, index)}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className="border border-border rounded-lg bg-background transition-all hover:border-foreground/30"
     >
-      {/* Header */}
-      <div className="flex justify-between items-center border-b border-border pb-2">
-        <span className="font-semibold text-sm text-foreground flex items-center gap-2">
-          <GripVertical className="size-3.5 text-muted-foreground cursor-grab" />
-          <IconComponent className="size-4" />
+      {/* Collapsed Header (always visible) */}
+      <div
+        className="flex items-center gap-2 px-4 py-3 cursor-pointer"
+        onClick={() => onToggleExpand(field.id)}
+      >
+        <span
+          className="cursor-grab p-0.5 text-muted-foreground hover:text-foreground"
+          aria-label="Drag to reorder"
+        >
+          <GripVertical className="size-4" />
+        </span>
+        <IconComponent className="size-4 text-muted-foreground" />
+        <span className="font-medium text-sm text-foreground flex-1 truncate">
           {field.label}
         </span>
-        <div className="flex gap-1 text-muted-foreground">
+        {field.required && (
+          <Badge variant="outline" size="sm" className="text-xs">
+            Required
+          </Badge>
+        )}
+        <div className="flex items-center gap-1 ml-2">
           <button
-            onClick={() => onDuplicate(field.id)}
-            className="hover:text-foreground transition-colors p-1 rounded"
+            onClick={(e) => { e.stopPropagation(); onDuplicate(field.id); }}
+            className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
             aria-label="Duplicate field"
           >
             <Copy className="size-3.5" />
           </button>
           <button
-            onClick={() => onDelete(field.id)}
-            className="hover:text-destructive transition-colors p-1 rounded"
+            onClick={(e) => { e.stopPropagation(); onDelete(field.id); }}
+            className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
             aria-label="Delete field"
           >
             <Trash2 className="size-3.5" />
           </button>
-        </div>
-      </div>
-
-      {/* Config */}
-      <div className="flex flex-col gap-3">
-        {/* Field Type */}
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Field Type
-          </Label>
-          <div className="relative">
-            <select
-              className="w-full border border-border bg-background text-sm p-2 pr-8 outline-none focus:border-foreground transition-colors rounded-md appearance-none"
-              value={field.type}
-              onChange={(e) =>
-                onUpdate(field.id, { type: e.target.value as FormFieldType })
-              }
-            >
-              {FIELD_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-          </div>
-        </div>
-
-        {/* Label */}
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Label
-          </Label>
-          <input
-            className="w-full border border-border bg-background text-sm p-2 outline-none focus:border-foreground transition-colors rounded-md"
-            type="text"
-            value={field.label}
-            onChange={(e) => onUpdate(field.id, { label: e.target.value })}
-          />
-        </div>
-
-        {/* Placeholder */}
-        {field.type !== "heading" && (
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Placeholder
-            </Label>
-            <input
-              className="w-full border border-border bg-background text-sm p-2 outline-none focus:border-foreground transition-colors rounded-md text-muted-foreground"
-              type="text"
-              value={field.placeholder}
-              onChange={(e) =>
-                onUpdate(field.id, { placeholder: e.target.value })
-              }
-            />
-          </div>
-        )}
-
-        {/* Validation */}
-        <div className="flex items-center gap-4 mt-1">
-          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-            <Checkbox
-              checked={field.required}
-              onCheckedChange={(checked) =>
-                onUpdate(field.id, { required: !!checked })
-              }
-            />
-            Required
-          </label>
-          {(field.type === "email" || field.type === "phone") && (
-            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-              <Checkbox
-                checked={field.validateFormat}
-                onCheckedChange={(checked) =>
-                  onUpdate(field.id, { validateFormat: !!checked })
-                }
-              />
-              Validate Format
-            </label>
+          {isExpanded ? (
+            <ChevronUp className="size-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="size-4 text-muted-foreground" />
           )}
         </div>
       </div>
-    </motion.div>
+
+      {/* Expanded Config (editing zone) */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 flex flex-col gap-3 border-t border-border pt-3">
+              {/* Field Type */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Field Type
+                </Label>
+                <div className="relative">
+                  <select
+                    className="w-full border border-border bg-background text-sm p-2 pr-8 outline-none focus:border-foreground transition-colors rounded-md appearance-none"
+                    value={field.type}
+                    onChange={(e) =>
+                      onUpdate(field.id, { type: e.target.value as FormFieldType })
+                    }
+                  >
+                    {FIELD_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Label */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Label
+                </Label>
+                <input
+                  className="w-full border border-border bg-background text-sm p-2 outline-none focus:border-foreground transition-colors rounded-md"
+                  type="text"
+                  value={field.label}
+                  onChange={(e) => onUpdate(field.id, { label: e.target.value })}
+                />
+              </div>
+
+              {/* Placeholder */}
+              {field.type !== "heading" && (
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Placeholder
+                  </Label>
+                  <input
+                    className="w-full border border-border bg-background text-sm p-2 outline-none focus:border-foreground transition-colors rounded-md text-muted-foreground"
+                    type="text"
+                    value={field.placeholder}
+                    onChange={(e) =>
+                      onUpdate(field.id, { placeholder: e.target.value })
+                    }
+                  />
+                </div>
+              )}
+
+              {/* Validation */}
+              <div className="flex items-center gap-4 mt-1">
+                <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                  <Checkbox
+                    checked={field.required}
+                    onCheckedChange={(checked) =>
+                      onUpdate(field.id, { required: !!checked })
+                    }
+                  />
+                  Required
+                </label>
+                {(field.type === "email" || field.type === "phone") && (
+                  <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                    <Checkbox
+                      checked={field.validateFormat}
+                      onCheckedChange={(checked) =>
+                        onUpdate(field.id, { validateFormat: !!checked })
+                      }
+                    />
+                    Validate Format
+                  </label>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -282,9 +346,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
     >
       <div
         className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-          isAI
-            ? "bg-muted border border-border"
-            : "bg-foreground"
+          isAI ? "bg-muted border border-border" : "bg-foreground"
         }`}
       >
         {isAI ? (
@@ -311,139 +373,25 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   );
 }
 
-/* ── Live Preview Field Renderer ─────────────────────────────────── */
-
-function PreviewField({ field }: { field: FormField }) {
-  if (field.type === "heading") {
-    return (
-      <div className="py-2">
-        <h3 className="font-semibold text-lg text-foreground">{field.label}</h3>
-      </div>
-    );
-  }
-
-  if (field.type === "textarea") {
-    return (
-      <div className="flex flex-col gap-2">
-        <label className="font-semibold text-sm text-foreground">
-          {field.label}
-          {field.required && <span className="text-destructive ml-1">*</span>}
-        </label>
-        <div className="w-full h-20 border border-border bg-background rounded p-3 text-sm text-muted-foreground">
-          {field.placeholder}
-        </div>
-      </div>
-    );
-  }
-
-  if (field.type === "dropdown") {
-    return (
-      <div className="flex flex-col gap-2">
-        <label className="font-semibold text-sm text-foreground">
-          {field.label}
-          {field.required && <span className="text-destructive ml-1">*</span>}
-        </label>
-        <div className="w-full h-10 border border-border bg-background rounded flex items-center justify-between px-3 text-sm text-muted-foreground">
-          <span>{field.placeholder || "Select..."}</span>
-          <ChevronDown className="size-4" />
-        </div>
-      </div>
-    );
-  }
-
-  if (field.type === "multipleChoice") {
-    return (
-      <div className="flex flex-col gap-2">
-        <label className="font-semibold text-sm text-foreground">
-          {field.label}
-          {field.required && <span className="text-destructive ml-1">*</span>}
-        </label>
-        <div className="flex flex-col gap-2">
-          {["Option 1", "Option 2", "Option 3"].map((opt) => (
-            <label key={opt} className="flex items-center gap-2 text-sm">
-              <div className="w-4 h-4 rounded-full border border-border" />
-              {opt}
-            </label>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (field.type === "checkbox") {
-    return (
-      <div className="flex flex-col gap-2">
-        <label className="font-semibold text-sm text-foreground">
-          {field.label}
-          {field.required && <span className="text-destructive ml-1">*</span>}
-        </label>
-        <div className="flex gap-4">
-          {["Option 1", "Option 2"].map((opt) => (
-            <label key={opt} className="flex items-center gap-2 text-sm">
-              <div className="w-4 h-4 rounded border border-border" />
-              {opt}
-            </label>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (field.type === "rating") {
-    return (
-      <div className="flex flex-col gap-2">
-        <label className="font-semibold text-sm text-foreground">
-          {field.label}
-          {field.required && <span className="text-destructive ml-1">*</span>}
-        </label>
-        <div className="flex gap-1">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Star
-              key={i}
-              className="size-5 text-border hover:text-foreground transition-colors cursor-pointer"
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Default: textInput, email, phone, datePicker
-  return (
-    <div className="flex flex-col gap-2">
-      <label className="font-semibold text-sm text-foreground">
-        {field.label}
-        {field.required && <span className="text-destructive ml-1">*</span>}
-      </label>
-      <input
-        className="w-full border border-border bg-background rounded p-3 text-sm outline-none placeholder:text-muted-foreground"
-        placeholder={field.placeholder}
-        type={field.type === "email" ? "email" : field.type === "phone" ? "tel" : "text"}
-        readOnly
-      />
-    </div>
-  );
-}
-
 /* ── Main Create Form Component ──────────────────────────────────── */
 
 export function CreateFormPage() {
   const [mode, setMode] = useState<"chat" | "manual">("manual");
-  const [formTitle, setFormTitle] = useState("Registration Form");
-  const [formDescription, setFormDescription] = useState(
-    "Please fill out the information below to complete your registration."
-  );
+  const [formTitle, setFormTitle] = useState("Untitled Form");
+  const [formDescription, setFormDescription] = useState("");
   const [formType, setFormType] = useState<FormType>("scroll");
-  const [fields, setFields] = useState<FormField[]>(INITIAL_FIELDS);
+  const [fields, setFields] = useState<FormField[]>([]);
+  const [expandedFieldId, setExpandedFieldId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
   const [chatInput, setChatInput] = useState("");
   const [saveState, setSaveState] = useState<"unsaved" | "saving" | "saved">("unsaved");
-  const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
+  const [dropHighlight, setDropHighlight] = useState(false);
 
   /* ── Refs for timeout cleanup ─────────────────────────────────── */
   const aiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const publishTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const dragIndexRef = useRef<number | null>(null);
 
   /* ── Cleanup on unmount ──────────────────────────────────────── */
   useEffect(() => {
@@ -491,23 +439,115 @@ export function CreateFormPage() {
 
   const deleteField = useCallback((id: string) => {
     setFields((prev) => prev.filter((f) => f.id !== id));
+    setExpandedFieldId((prev) => (prev === id ? null : prev));
     setSaveState("unsaved");
   }, []);
 
-  const addField = useCallback(() => {
-    setFields((prev) => [
-      ...prev,
-      {
-        id: `field-${crypto.randomUUID()}`,
-        type: "textInput",
-        label: "New Field",
-        placeholder: "Enter value...",
-        required: false,
-        validateFormat: false,
-      },
-    ]);
-    setSaveState("unsaved");
+  const toggleExpandField = useCallback((id: string) => {
+    setExpandedFieldId((prev) => (prev === id ? null : id));
   }, []);
+
+  /* ── Native HTML5 Drag & Drop — Canvas handlers ──────────────── */
+
+  /** A snippet from the palette is dropped onto the canvas */
+  /** Drop snippet on the canvas background (appends to end) */
+  const handleCanvasDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDropHighlight(false);
+
+      const snippetType = e.dataTransfer.getData("application/snippet-type");
+      if (snippetType) {
+        const newField = createField(snippetType as FormFieldType);
+        setFields((prev) => [...prev, newField]);
+        setExpandedFieldId(newField.id);
+        setSaveState("unsaved");
+      }
+    },
+    []
+  );
+
+  /** Drop snippet on a specific card — insert above or below based on cursor Y */
+  const handleSnippetDropOnCard = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, cardIndex: number) => {
+      setDropHighlight(false);
+      const snippetType = e.dataTransfer.getData("application/snippet-type");
+      if (!snippetType) return;
+
+      // Determine if cursor is in the top or bottom half of the card
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const insertIndex = e.clientY < midY ? cardIndex : cardIndex + 1;
+
+      const newField = createField(snippetType as FormFieldType);
+      setFields((prev) => {
+        const next = [...prev];
+        next.splice(insertIndex, 0, newField);
+        return next;
+      });
+      setExpandedFieldId(newField.id);
+      setSaveState("unsaved");
+    },
+    []
+  );
+
+  const handleCanvasDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setDropHighlight(true);
+    },
+    []
+  );
+
+  const handleCanvasDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      // Only reset if leaving the canvas itself, not entering a child
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setDropHighlight(false);
+      }
+    },
+    []
+  );
+
+  /** Reorder drag — start: store source index */
+  const handleReorderDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      dragIndexRef.current = index;
+      e.dataTransfer.setData("application/reorder", String(index));
+      e.dataTransfer.effectAllowed = "move";
+    },
+    []
+  );
+
+  /** Reorder drag — over: allow drop */
+  const handleReorderDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, _index: number) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    },
+    []
+  );
+
+  /** Reorder drag — drop: swap positions */
+  const handleReorderDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sourceIndex = dragIndexRef.current;
+      if (sourceIndex === null || sourceIndex === targetIndex) return;
+
+      setFields((prev) => {
+        const next = [...prev];
+        const [removed] = next.splice(sourceIndex, 1);
+        next.splice(targetIndex, 0, removed);
+        return next;
+      });
+      dragIndexRef.current = null;
+      setSaveState("unsaved");
+    },
+    []
+  );
 
   /* ── Chat Operations ─────────────────────────────────────────── */
 
@@ -521,14 +561,13 @@ export function CreateFormPage() {
     setChatMessages((prev) => [...prev, userMsg]);
     setChatInput("");
 
-    // Simulate AI response
     if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
     aiTimeoutRef.current = setTimeout(() => {
       const aiMsg: ChatMessage = {
         id: `msg-${crypto.randomUUID()}`,
         role: "ai",
         content:
-          "I've updated the form based on your request. Check the preview on the right.",
+          "I've updated the form based on your request. Check the canvas on the right.",
         code: "Modified fields: Updated structure",
       };
       setChatMessages((prev) => [...prev, aiMsg]);
@@ -572,8 +611,8 @@ export function CreateFormPage() {
 
       {/* ─── Main Workspace (Split Screen) ───────────────────────── */}
       <main className="flex-1 flex overflow-hidden">
-        {/* ── Left Panel ─────────────────────────────────────────── */}
-        <aside className="w-full md:w-[400px] border-r border-border bg-background flex flex-col shrink-0 h-full">
+        {/* ── Left Panel: Snippet Palette ───────────────────────── */}
+        <aside className="w-full md:w-[320px] border-r border-border bg-background flex flex-col shrink-0 h-full">
           {/* Tab Switcher */}
           <div className="p-4 border-b border-border shrink-0">
             <div className="flex w-full border border-border rounded-lg p-1 bg-muted/30">
@@ -641,28 +680,24 @@ export function CreateFormPage() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ duration: 0.2 }}
-                  className="h-full overflow-y-auto p-4 flex flex-col gap-4"
+                  className="h-full overflow-y-auto p-4 flex flex-col gap-2"
                 >
-                  <AnimatePresence>
-                    {fields.map((field) => (
-                      <FieldConfigCard
-                        key={field.id}
-                        field={field}
-                        onUpdate={updateField}
-                        onDuplicate={duplicateField}
-                        onDelete={deleteField}
+                  {/* Section Header */}
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Drag snippets to canvas
+                  </p>
+
+                  {/* Draggable Snippet List */}
+                  <div className="flex flex-col gap-2">
+                    {FIELD_TYPE_OPTIONS.map((opt) => (
+                      <SnippetItem
+                        key={opt.value}
+                        type={opt.value}
+                        label={opt.label}
+                        icon={opt.icon}
                       />
                     ))}
-                  </AnimatePresence>
-
-                  {/* Add Field Button */}
-                  <button
-                    onClick={addField}
-                    className="w-full py-3 border border-dashed border-border text-muted-foreground text-sm font-medium hover:border-foreground/30 hover:text-foreground transition-colors flex justify-center items-center gap-2 rounded-lg bg-muted/20"
-                  >
-                    <Plus className="size-4" />
-                    Add Field
-                  </button>
+                  </div>
                 </motion.div>
               ) : (
                 <motion.div
@@ -674,7 +709,10 @@ export function CreateFormPage() {
                   className="h-full flex flex-col"
                 >
                   {/* Chat History */}
-                  <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                  <div
+                    ref={chatScrollRef}
+                    className="flex-1 overflow-y-auto p-4 flex flex-col gap-4"
+                  >
                     {chatMessages.map((msg) => (
                       <ChatBubble key={msg.id} message={msg} />
                     ))}
@@ -709,76 +747,31 @@ export function CreateFormPage() {
           </div>
         </aside>
 
-        {/* ── Right Panel: Live Preview ──────────────────────────── */}
-        <section className="flex-1 bg-accent/30 overflow-y-auto relative hidden md:flex flex-col">
-          {/* Preview Header */}
-          <div className="sticky top-0 z-10 px-8 py-4 flex justify-between items-center bg-accent/30 backdrop-blur-sm">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <Eye className="size-3.5" />
-              Live Preview
-            </h2>
-            <div className="flex gap-1">
-              <Button
-                variant={previewMode === "desktop" ? "outline" : "ghost"}
-                size="icon-sm"
-                onClick={() => setPreviewMode("desktop")}
-              >
-                <Monitor className="size-4" />
-              </Button>
-              <Button
-                variant={previewMode === "mobile" ? "outline" : "ghost"}
-                size="icon-sm"
-                onClick={() => setPreviewMode("mobile")}
-              >
-                <Smartphone className="size-4" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Preview Canvas */}
-          <div className="flex-1 flex items-start justify-center p-8 pt-4">
-            <motion.div
-              className={`bg-background border border-border shadow-sm relative ${
-                previewMode === "mobile" ? "w-full max-w-sm" : "w-full max-w-2xl"
-              }`}
-              animate={{ maxWidth: previewMode === "mobile" ? "24rem" : "42rem" }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-              style={{ borderRadius: "2px" }}
-            >
-              {/* Subtle blueprint dot pattern */}
-              <div
-                className="absolute inset-0 opacity-[0.03] pointer-events-none"
-                style={{
-                  backgroundImage: "radial-gradient(#000 1px, transparent 1px)",
-                  backgroundSize: "16px 16px",
-                }}
-              />
-
-              <div className="relative z-10 p-8 md:p-12 flex flex-col gap-6">
-                {/* Form Header */}
-                <div className="border-b border-border pb-6 mb-2">
-                  <input
-                    className="w-full font-bold text-2xl md:text-3xl font-[family-name:var(--font-space-grotesk)] text-foreground bg-transparent outline-none placeholder:text-muted-foreground"
-                    value={formTitle}
-                    onChange={(e) => {
-                      setFormTitle(e.target.value);
-                      setSaveState("unsaved");
-                    }}
-                    placeholder="Form Title"
-                  />
-                  <input
-                    className="w-full text-sm text-muted-foreground mt-2 bg-transparent outline-none placeholder:text-muted-foreground/50"
-                    value={formDescription}
-                    onChange={(e) => {
-                      setFormDescription(e.target.value);
-                      setSaveState("unsaved");
-                    }}
-                    placeholder="Form description..."
-                  />
-                </div>
-
-                {/* Form Type Badge */}
-                <div className="flex items-center gap-2">
+        {/* ── Right Panel: Editing Canvas ───────────────────────── */}
+        <section className="flex-1 bg-accent/20 overflow-y-auto hidden md:flex flex-col">
+          <div className="flex-1 flex justify-center p-8">
+            <div className="w-full max-w-2xl flex flex-col gap-6">
+              {/* Form Header (Editable) */}
+              <div className="bg-background border border-border rounded-lg p-6">
+                <input
+                  className="w-full font-bold text-2xl md:text-3xl font-[family-name:var(--font-space-grotesk)] text-foreground bg-transparent outline-none placeholder:text-muted-foreground"
+                  value={formTitle}
+                  onChange={(e) => {
+                    setFormTitle(e.target.value);
+                    setSaveState("unsaved");
+                  }}
+                  placeholder="Form Title"
+                />
+                <input
+                  className="w-full text-sm text-muted-foreground mt-2 bg-transparent outline-none placeholder:text-muted-foreground/50"
+                  value={formDescription}
+                  onChange={(e) => {
+                    setFormDescription(e.target.value);
+                    setSaveState("unsaved");
+                  }}
+                  placeholder="Add a description..."
+                />
+                <div className="flex items-center gap-2 mt-4">
                   <Badge variant="outline" size="sm" className="capitalize gap-1">
                     {formType === "scroll" && <ScrollText className="size-3" />}
                     {formType === "step" && <ListOrdered className="size-3" />}
@@ -786,31 +779,51 @@ export function CreateFormPage() {
                     {formType} form
                   </Badge>
                 </div>
+              </div>
 
-                {/* Rendered Fields */}
-                <AnimatePresence>
-                  {fields.map((field) => (
-                    <motion.div
-                      key={field.id}
-                      layout
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <PreviewField field={field} />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-
-                {/* Submit Button */}
-                {fields.length > 0 && (
-                  <div className="mt-4 pt-6 border-t border-border flex justify-end">
-                    <Button>Submit Form</Button>
+              {/* Droppable Canvas */}
+              <div
+                onDrop={handleCanvasDrop}
+                onDragOver={handleCanvasDragOver}
+                onDragLeave={handleCanvasDragLeave}
+                className={`flex flex-col gap-3 min-h-[200px] rounded-lg transition-colors p-2 ${
+                  dropHighlight
+                    ? "bg-foreground/5 border-2 border-dashed border-foreground/20"
+                    : fields.length === 0
+                      ? "border-2 border-dashed border-border"
+                      : ""
+                }`}
+              >
+                {fields.length === 0 && !dropHighlight && (
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                    <GripVertical className="size-8 mb-3 opacity-30" />
+                    <p className="text-sm font-medium">
+                      Drag snippets here to build your form
+                    </p>
+                    <p className="text-xs mt-1 opacity-60">
+                      Drag field types from the left panel and drop here
+                    </p>
                   </div>
                 )}
+
+                {fields.map((field, index) => (
+                  <CanvasFieldCard
+                    key={field.id}
+                    field={field}
+                    index={index}
+                    onUpdate={updateField}
+                    onDuplicate={duplicateField}
+                    onDelete={deleteField}
+                    isExpanded={expandedFieldId === field.id}
+                    onToggleExpand={toggleExpandField}
+                    onReorderDragStart={handleReorderDragStart}
+                    onReorderDragOver={handleReorderDragOver}
+                    onReorderDrop={handleReorderDrop}
+                    onSnippetDropOnCard={handleSnippetDropOnCard}
+                  />
+                ))}
               </div>
-            </motion.div>
+            </div>
           </div>
         </section>
       </main>
