@@ -133,6 +133,12 @@ describe("Template Community Routes", () => {
       expect(response.status).toBe(201);
       expect(response.data.success).toBe(true);
       expect(response.data.data.userId).toBe(user.id);
+
+      // Verify the template fields were snapshotted from the source form
+      const sourceForm = await prisma.form.findUnique({
+        where: { id: formId },
+      });
+      expect(response.data.data.fields).toEqual(sourceForm?.fields);
     });
   });
 
