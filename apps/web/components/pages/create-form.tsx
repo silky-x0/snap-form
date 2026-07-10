@@ -1,0 +1,832 @@
+"use client";
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "motion/react";
+import { Button } from "@repo/ui/components/ui/button";
+import { Badge } from "@repo/ui/components/ui/badge";
+import { Label } from "@repo/ui/components/ui/label";
+import { Checkbox } from "@repo/ui/components/ui/checkbox";
+import {
+  MessageSquare,
+  Wrench,
+  Type,
+  Mail,
+  Copy,
+  Trash2,
+  Send,
+  Bot,
+  User,
+  Upload,
+  GripVertical,
+  ChevronDown,
+  ScrollText,
+  ListOrdered,
+  MessageCircle,
+  Phone,
+  Calendar,
+  Star,
+  AlignLeft,
+  Heading,
+  ChevronUp,
+  SquareCheck,
+} from "lucide-react";
+
+/* ── Types ───────────────────────────────────────────────────────── */
+
+type FormFieldType =
+  | "textInput"
+  | "textarea"
+  | "email"
+  | "phone"
+  | "dropdown"
+  | "multipleChoice"
+  | "checkbox"
+  | "datePicker"
+  | "rating"
+  | "heading";
+
+type FormField = {
+  id: string;
+  type: FormFieldType;
+  label: string;
+  placeholder: string;
+  required: boolean;
+  validateFormat: boolean;
+};
+
+type ChatMessage = {
+  id: string;
+  role: "ai" | "user";
+  content: string;
+  code?: string;
+};
+
+type FormType = "scroll" | "step" | "chat";
+
+/* ── Field Type Metadata ─────────────────────────────────────────── */
+
+const FIELD_TYPE_OPTIONS = [
+  { value: "textInput" as const, label: "Short Text", icon: Type },
+  { value: "textarea" as const, label: "Long Text", icon: AlignLeft },
+  { value: "email" as const, label: "Email", icon: Mail },
+  { value: "phone" as const, label: "Phone", icon: Phone },
+  { value: "dropdown" as const, label: "Dropdown", icon: ChevronDown },
+  { value: "multipleChoice" as const, label: "Multiple Choice", icon: ListOrdered },
+  { value: "checkbox" as const, label: "Checkbox", icon: SquareCheck },
+  { value: "datePicker" as const, label: "Date", icon: Calendar },
+  { value: "rating" as const, label: "Rating", icon: Star },
+  { value: "heading" as const, label: "Heading", icon: Heading },
+] as const;
+
+const FIELD_ICON_MAP = Object.fromEntries(
+  FIELD_TYPE_OPTIONS.map((opt) => [opt.value, opt.icon])
+) as Record<FormFieldType, typeof Type>;
+
+function getFieldIcon(type: FormFieldType) {
+  return FIELD_ICON_MAP[type] ?? Type;
+}
+
+function createField(type: FormFieldType): FormField {
+  const meta = FIELD_TYPE_OPTIONS.find((o) => o.value === type);
+  return {
+    id: `field-${crypto.randomUUID()}`,
+    type,
+    label: meta?.label ?? "New Field",
+    placeholder: type === "heading" ? "" : "Enter value...",
+    required: false,
+    validateFormat: false,
+  };
+}
+
+/* ── Mock Chat Data ──────────────────────────────────────────────── */
+
+const INITIAL_CHAT: ChatMessage[] = [
+  {
+    id: "msg-1",
+    role: "ai",
+    content: "Hi! What kind of form do you want to build today?",
+  },
+];
+
+/* ── Snippet Palette Item (Left Panel — draggable) ───────────────── */
+
+function SnippetItem({
+  type,
+  label,
+  icon: Icon,
+}: {
+  type: FormFieldType;
+  label: string;
+  icon: typeof Type;
+}) {
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>) {
+    e.dataTransfer.setData("application/snippet-type", type);
+    e.dataTransfer.effectAllowed = "copy";
+  }
+
+  return (
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      className="flex items-center gap-3 px-3 py-2.5 border border-border rounded-lg cursor-grab text-sm bg-background text-foreground hover:border-foreground/40 hover:bg-muted/50 transition-all select-none active:scale-95 active:shadow-lg active:border-foreground"
+    >
+      <Icon className="size-4 shrink-0" />
+      <span className="font-medium">{label}</span>
+      <GripVertical className="size-3.5 ml-auto text-muted-foreground" />
+    </div>
+  );
+}
+
+/* ── Canvas Field Card (Right Panel — Editable, draggable) ───────── */
+
+function CanvasFieldCard({
+  field,
+  index,
+  onUpdate,
+  onDuplicate,
+  onDelete,
+  isExpanded,
+  onToggleExpand,
+  onReorderDragStart,
+  onReorderDragOver,
+  onReorderDrop,
+  onSnippetDropOnCard,
+}: {
+  field: FormField;
+  index: number;
+  onUpdate: (id: string, updates: Partial<FormField>) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
+  isExpanded: boolean;
+  onToggleExpand: (id: string) => void;
+  onReorderDragStart: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onReorderDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onReorderDrop: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onSnippetDropOnCard: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+}) {
+  const IconComponent = getFieldIcon(field.type);
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    // Accept both reorder and snippet drops
+    const hasSnippet = e.dataTransfer.types.includes("application/snippet-type");
+    e.dataTransfer.dropEffect = hasSnippet ? "copy" : "move";
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    const snippetType = e.dataTransfer.getData("application/snippet-type");
+    if (snippetType) {
+      // Snippet from palette — insert above or below based on cursor position
+      e.preventDefault();
+      e.stopPropagation();
+      onSnippetDropOnCard(e, index);
+    } else {
+      // Reorder within canvas
+      onReorderDrop(e, index);
+    }
+  }
+
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onReorderDragStart(e, index)}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className="border border-border rounded-lg bg-background transition-all hover:border-foreground/30"
+    >
+      {/* Collapsed Header (always visible) */}
+      <div
+        className="flex items-center gap-2 px-4 py-3 cursor-pointer"
+        onClick={() => onToggleExpand(field.id)}
+      >
+        <span
+          className="cursor-grab p-0.5 text-muted-foreground hover:text-foreground"
+          aria-label="Drag to reorder"
+        >
+          <GripVertical className="size-4" />
+        </span>
+        <IconComponent className="size-4 text-muted-foreground" />
+        <span className="font-medium text-sm text-foreground flex-1 truncate">
+          {field.label}
+        </span>
+        {field.required && (
+          <Badge variant="outline" size="sm" className="text-xs">
+            Required
+          </Badge>
+        )}
+        <div className="flex items-center gap-1 ml-2">
+          <button
+            onClick={(e) => { e.stopPropagation(); onDuplicate(field.id); }}
+            className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+            aria-label="Duplicate field"
+          >
+            <Copy className="size-3.5" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(field.id); }}
+            className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
+            aria-label="Delete field"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+          {isExpanded ? (
+            <ChevronUp className="size-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="size-4 text-muted-foreground" />
+          )}
+        </div>
+      </div>
+
+      {/* Expanded Config (editing zone) */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 flex flex-col gap-3 border-t border-border pt-3">
+              {/* Field Type */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Field Type
+                </Label>
+                <div className="relative">
+                  <select
+                    className="w-full border border-border bg-background text-sm p-2 pr-8 outline-none focus:border-foreground transition-colors rounded-md appearance-none"
+                    value={field.type}
+                    onChange={(e) =>
+                      onUpdate(field.id, { type: e.target.value as FormFieldType })
+                    }
+                  >
+                    {FIELD_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Label */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Label
+                </Label>
+                <input
+                  className="w-full border border-border bg-background text-sm p-2 outline-none focus:border-foreground transition-colors rounded-md"
+                  type="text"
+                  value={field.label}
+                  onChange={(e) => onUpdate(field.id, { label: e.target.value })}
+                />
+              </div>
+
+              {/* Placeholder */}
+              {field.type !== "heading" && (
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Placeholder
+                  </Label>
+                  <input
+                    className="w-full border border-border bg-background text-sm p-2 outline-none focus:border-foreground transition-colors rounded-md text-muted-foreground"
+                    type="text"
+                    value={field.placeholder}
+                    onChange={(e) =>
+                      onUpdate(field.id, { placeholder: e.target.value })
+                    }
+                  />
+                </div>
+              )}
+
+              {/* Validation */}
+              <div className="flex items-center gap-4 mt-1">
+                <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                  <Checkbox
+                    checked={field.required}
+                    onCheckedChange={(checked) =>
+                      onUpdate(field.id, { required: !!checked })
+                    }
+                  />
+                  Required
+                </label>
+                {(field.type === "email" || field.type === "phone") && (
+                  <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                    <Checkbox
+                      checked={field.validateFormat}
+                      onCheckedChange={(checked) =>
+                        onUpdate(field.id, { validateFormat: !!checked })
+                      }
+                    />
+                    Validate Format
+                  </label>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Chat Message Bubble ─────────────────────────────────────────── */
+
+function ChatBubble({ message }: { message: ChatMessage }) {
+  const isAI = message.role === "ai";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className={`flex gap-2.5 ${isAI ? "" : "flex-row-reverse"}`}
+    >
+      <div
+        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+          isAI ? "bg-muted border border-border" : "bg-foreground"
+        }`}
+      >
+        {isAI ? (
+          <Bot className="size-3.5 text-foreground" />
+        ) : (
+          <User className="size-3.5 text-background" />
+        )}
+      </div>
+      <div
+        className={`rounded-lg p-3 text-sm max-w-[85%] flex flex-col gap-2 ${
+          isAI
+            ? "bg-muted border border-border text-foreground"
+            : "bg-background border border-border text-foreground"
+        }`}
+      >
+        <span>{message.content}</span>
+        {message.code && (
+          <div className="bg-background border border-border rounded p-2 text-xs font-mono text-muted-foreground">
+            {message.code}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Main Create Form Component ──────────────────────────────────── */
+
+export function CreateFormPage() {
+  const [mode, setMode] = useState<"chat" | "manual">("manual");
+  const [formTitle, setFormTitle] = useState("Untitled Form");
+  const [formDescription, setFormDescription] = useState("");
+  const [formType, setFormType] = useState<FormType>("scroll");
+  const [fields, setFields] = useState<FormField[]>([]);
+  const [expandedFieldId, setExpandedFieldId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
+  const [chatInput, setChatInput] = useState("");
+  const [saveState, setSaveState] = useState<"unsaved" | "saving" | "saved">("unsaved");
+  const [dropHighlight, setDropHighlight] = useState(false);
+
+  /* ── Refs for timeout cleanup ─────────────────────────────────── */
+  const aiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const publishTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const dragIndexRef = useRef<number | null>(null);
+
+  /* ── Cleanup on unmount ──────────────────────────────────────── */
+  useEffect(() => {
+    return () => {
+      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+      publishTimersRef.current.forEach(clearTimeout);
+    };
+  }, []);
+
+  /* ── Auto-scroll chat to bottom ──────────────────────────────── */
+  useEffect(() => {
+    chatScrollRef.current?.scrollTo({
+      top: chatScrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [chatMessages]);
+
+  /* ── Field Operations ────────────────────────────────────────── */
+
+  const updateField = useCallback(
+    (id: string, updates: Partial<FormField>) => {
+      setFields((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, ...updates } : f))
+      );
+      setSaveState("unsaved");
+    },
+    []
+  );
+
+  const duplicateField = useCallback((id: string) => {
+    setFields((prev) => {
+      const idx = prev.findIndex((f) => f.id === id);
+      if (idx === -1) return prev;
+      const clone = {
+        ...prev[idx],
+        id: `field-${crypto.randomUUID()}`,
+        label: `${prev[idx].label} (Copy)`,
+      };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+    setSaveState("unsaved");
+  }, []);
+
+  const deleteField = useCallback((id: string) => {
+    setFields((prev) => prev.filter((f) => f.id !== id));
+    setExpandedFieldId((prev) => (prev === id ? null : prev));
+    setSaveState("unsaved");
+  }, []);
+
+  const toggleExpandField = useCallback((id: string) => {
+    setExpandedFieldId((prev) => (prev === id ? null : id));
+  }, []);
+
+  /* ── Native HTML5 Drag & Drop — Canvas handlers ──────────────── */
+
+  /** Drop snippet on the canvas background (appends to end) */
+  const handleCanvasDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDropHighlight(false);
+
+      const snippetType = e.dataTransfer.getData("application/snippet-type");
+      if (snippetType) {
+        const newField = createField(snippetType as FormFieldType);
+        setFields((prev) => [...prev, newField]);
+        setExpandedFieldId(newField.id);
+        setSaveState("unsaved");
+      }
+    },
+    []
+  );
+
+  /** Drop snippet on a specific card — insert above or below based on cursor Y */
+  const handleSnippetDropOnCard = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, cardIndex: number) => {
+      setDropHighlight(false);
+      const snippetType = e.dataTransfer.getData("application/snippet-type");
+      if (!snippetType) return;
+
+      // Determine if cursor is in the top or bottom half of the card
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const insertIndex = e.clientY < midY ? cardIndex : cardIndex + 1;
+
+      const newField = createField(snippetType as FormFieldType);
+      setFields((prev) => {
+        const next = [...prev];
+        next.splice(insertIndex, 0, newField);
+        return next;
+      });
+      setExpandedFieldId(newField.id);
+      setSaveState("unsaved");
+    },
+    []
+  );
+
+  const handleCanvasDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setDropHighlight(true);
+    },
+    []
+  );
+
+  const handleCanvasDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      // Only reset if leaving the canvas itself, not entering a child
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setDropHighlight(false);
+      }
+    },
+    []
+  );
+
+  /** Reorder drag — start: store source index */
+  const handleReorderDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      dragIndexRef.current = index;
+      e.dataTransfer.setData("application/reorder", String(index));
+      e.dataTransfer.effectAllowed = "move";
+    },
+    []
+  );
+
+  /** Reorder drag — over: allow drop */
+  const handleReorderDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, _index: number) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    },
+    []
+  );
+
+  /** Reorder drag — drop: swap positions */
+  const handleReorderDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const sourceIndex = dragIndexRef.current;
+      if (sourceIndex === null || sourceIndex === targetIndex) return;
+
+      setFields((prev) => {
+        const next = [...prev];
+        const [removed] = next.splice(sourceIndex, 1);
+        next.splice(targetIndex, 0, removed);
+        return next;
+      });
+      dragIndexRef.current = null;
+      setSaveState("unsaved");
+    },
+    []
+  );
+
+  /* ── Chat Operations ─────────────────────────────────────────── */
+
+  const sendChatMessage = useCallback(() => {
+    if (!chatInput.trim()) return;
+    const userMsg: ChatMessage = {
+      id: `msg-${crypto.randomUUID()}`,
+      role: "user",
+      content: chatInput,
+    };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setChatInput("");
+
+    if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+    aiTimeoutRef.current = setTimeout(() => {
+      const aiMsg: ChatMessage = {
+        id: `msg-${crypto.randomUUID()}`,
+        role: "ai",
+        content:
+          "I've updated the form based on your request. Check the canvas on the right.",
+        code: "Modified fields: Updated structure",
+      };
+      setChatMessages((prev) => [...prev, aiMsg]);
+    }, 1200);
+  }, [chatInput]);
+
+  /* ── Mock Save ───────────────────────────────────────────────── */
+
+  const handlePublish = useCallback(() => {
+    publishTimersRef.current.forEach(clearTimeout);
+    publishTimersRef.current = [];
+    setSaveState("saving");
+    publishTimersRef.current.push(setTimeout(() => setSaveState("saved"), 1500));
+    publishTimersRef.current.push(setTimeout(() => setSaveState("unsaved"), 5000));
+  }, []);
+
+  return (
+    <div className="bg-background text-foreground h-screen flex flex-col overflow-hidden">
+      {/* ─── Top Navigation ──────────────────────────────────────── */}
+      <nav className="border-b border-border bg-background shrink-0 z-10">
+        <div className="flex justify-between items-center w-full h-14 px-6 lg:px-8 max-w-[1440px] mx-auto">
+          <Link
+            href="/dashboard"
+            className="font-bold text-lg font-[family-name:var(--font-space-grotesk)] text-foreground"
+          >
+            Snap-Form
+          </Link>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted-foreground hidden md:block">
+              {saveState === "unsaved" && "Unsaved changes"}
+              {saveState === "saving" && "Saving..."}
+              {saveState === "saved" && "✓ Published"}
+            </span>
+            <Button size="sm" onClick={handlePublish}>
+              <Upload className="size-3.5" />
+              Publish
+            </Button>
+          </div>
+        </div>
+      </nav>
+
+      {/* ─── Main Workspace (Split Screen) ───────────────────────── */}
+      <main className="flex-1 flex overflow-hidden">
+        {/* ── Left Panel: Snippet Palette ───────────────────────── */}
+        <aside className="w-full md:w-[320px] border-r border-border bg-background flex flex-col shrink-0 h-full">
+          {/* Tab Switcher */}
+          <div className="p-4 border-b border-border shrink-0">
+            <div className="flex w-full border border-border rounded-lg p-1 bg-muted/30">
+              <button
+                onClick={() => setMode("chat")}
+                className={`flex-1 py-2 text-sm font-medium rounded-md flex justify-center items-center gap-2 transition-all ${
+                  mode === "chat"
+                    ? "bg-background text-foreground border border-border shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MessageSquare className="size-4" />
+                Chat
+              </button>
+              <button
+                onClick={() => setMode("manual")}
+                className={`flex-1 py-2 text-sm font-medium rounded-md flex justify-center items-center gap-2 transition-all ${
+                  mode === "manual"
+                    ? "bg-background text-foreground border border-border shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Wrench className="size-4" />
+                Manual
+              </button>
+            </div>
+          </div>
+
+          {/* Form Type Selector */}
+          <div className="px-4 py-3 border-b border-border shrink-0">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Form Type
+            </Label>
+            <div className="flex gap-2 mt-2">
+              {(
+                [
+                  { id: "scroll", label: "Scroll", icon: ScrollText },
+                  { id: "step", label: "Step", icon: ListOrdered },
+                  { id: "chat", label: "Chat", icon: MessageCircle },
+                ] as const
+              ).map((ft) => (
+                <button
+                  key={ft.id}
+                  onClick={() => setFormType(ft.id)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md flex items-center justify-center gap-1.5 border transition-all ${
+                    formType === ft.id
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-background text-muted-foreground border-border hover:border-foreground/30"
+                  }`}
+                >
+                  <ft.icon className="size-3.5" />
+                  {ft.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Content Area */}
+          <div className="flex-1 overflow-hidden">
+            <AnimatePresence mode="wait">
+              {mode === "manual" ? (
+                <motion.div
+                  key="manual"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
+                  className="h-full overflow-y-auto p-4 flex flex-col gap-2"
+                >
+                  {/* Section Header */}
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                    Drag snippets to canvas
+                  </p>
+
+                  {/* Draggable Snippet List */}
+                  <div className="flex flex-col gap-2">
+                    {FIELD_TYPE_OPTIONS.map((opt) => (
+                      <SnippetItem
+                        key={opt.value}
+                        type={opt.value}
+                        label={opt.label}
+                        icon={opt.icon}
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="chat"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.2 }}
+                  className="h-full flex flex-col"
+                >
+                  {/* Chat History */}
+                  <div
+                    ref={chatScrollRef}
+                    className="flex-1 overflow-y-auto p-4 flex flex-col gap-4"
+                  >
+                    {chatMessages.map((msg) => (
+                      <ChatBubble key={msg.id} message={msg} />
+                    ))}
+                  </div>
+
+                  {/* Chat Input */}
+                  <div className="p-3 border-t border-border shrink-0">
+                    <div className="flex items-center bg-background border border-border rounded-lg focus-within:border-foreground/50 transition-colors">
+                      <input
+                        aria-label="Chat prompt input"
+                        className="flex-1 bg-transparent border-none text-sm p-3 placeholder:text-muted-foreground outline-none"
+                        placeholder="Input prompt..."
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") sendChatMessage();
+                        }}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="mr-1 text-foreground"
+                        onClick={sendChatMessage}
+                      >
+                        <Send className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </aside>
+
+        {/* ── Right Panel: Editing Canvas ───────────────────────── */}
+        <section className="flex-1 bg-accent/20 overflow-y-auto hidden md:flex flex-col">
+          <div className="flex-1 flex justify-center p-8">
+            <div className="w-full max-w-2xl flex flex-col gap-6">
+              {/* Form Header (Editable) */}
+              <div className="bg-background border border-border rounded-lg p-6">
+                <input
+                  className="w-full font-bold text-2xl md:text-3xl font-[family-name:var(--font-space-grotesk)] text-foreground bg-transparent outline-none placeholder:text-muted-foreground"
+                  value={formTitle}
+                  onChange={(e) => {
+                    setFormTitle(e.target.value);
+                    setSaveState("unsaved");
+                  }}
+                  placeholder="Form Title"
+                />
+                <input
+                  className="w-full text-sm text-muted-foreground mt-2 bg-transparent outline-none placeholder:text-muted-foreground/50"
+                  value={formDescription}
+                  onChange={(e) => {
+                    setFormDescription(e.target.value);
+                    setSaveState("unsaved");
+                  }}
+                  placeholder="Add a description..."
+                />
+                <div className="flex items-center gap-2 mt-4">
+                  <Badge variant="outline" size="sm" className="capitalize gap-1">
+                    {formType === "scroll" && <ScrollText className="size-3" />}
+                    {formType === "step" && <ListOrdered className="size-3" />}
+                    {formType === "chat" && <MessageCircle className="size-3" />}
+                    {formType} form
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Droppable Canvas */}
+              <div
+                onDrop={handleCanvasDrop}
+                onDragOver={handleCanvasDragOver}
+                onDragLeave={handleCanvasDragLeave}
+                className={`flex flex-col gap-3 min-h-[200px] rounded-lg transition-colors p-2 ${
+                  dropHighlight
+                    ? "bg-foreground/5 border-2 border-dashed border-foreground/20"
+                    : fields.length === 0
+                      ? "border-2 border-dashed border-border"
+                      : ""
+                }`}
+              >
+                {fields.length === 0 && !dropHighlight && (
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                    <GripVertical className="size-8 mb-3 opacity-30" />
+                    <p className="text-sm font-medium">
+                      Drag snippets here to build your form
+                    </p>
+                    <p className="text-xs mt-1 opacity-60">
+                      Drag field types from the left panel and drop here
+                    </p>
+                  </div>
+                )}
+
+                {fields.map((field, index) => (
+                  <CanvasFieldCard
+                    key={field.id}
+                    field={field}
+                    index={index}
+                    onUpdate={updateField}
+                    onDuplicate={duplicateField}
+                    onDelete={deleteField}
+                    isExpanded={expandedFieldId === field.id}
+                    onToggleExpand={toggleExpandField}
+                    onReorderDragStart={handleReorderDragStart}
+                    onReorderDragOver={handleReorderDragOver}
+                    onReorderDrop={handleReorderDrop}
+                    onSnippetDropOnCard={handleSnippetDropOnCard}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
