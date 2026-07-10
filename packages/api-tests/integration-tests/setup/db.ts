@@ -6,6 +6,8 @@ import crypto from "crypto";
  */
 export async function cleanDb() {
   await prisma.$transaction([
+    prisma.templateReview.deleteMany({}),
+    prisma.userOwnedTemplate.deleteMany({}),
     prisma.response.deleteMany({}),
     prisma.form.deleteMany({}),
     prisma.session.deleteMany({}),
